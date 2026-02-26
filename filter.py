@@ -2,7 +2,7 @@ import requests
 import re
 from urllib.parse import urlparse, parse_qs
 
-RAW_URL = "PASTE_YOUR_RAW_LINK_HERE"
+RAW_URL = "https://raw.githubusercontent.com/punez/Repo-5/refs/heads/main/final.txt"
 
 ALLOWED_PORTS = {443, 8443, 2096, 2087, 2053}
 
