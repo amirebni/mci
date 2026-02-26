@@ -2,8 +2,10 @@ import requests
 from urllib.parse import urlparse, parse_qs
 import ipaddress
 
+# پورت‌های SSL مجاز
 SSL_PORTS = {443, 8443, 2053, 2087, 2096}
 
+# رنج‌های IPv4 مربوط به Cloudflare
 CF_RANGES = [
     "173.245.48.0/20",
     "103.21.244.0/22",
@@ -32,15 +34,26 @@ def is_cloudflare_ip(ip):
         pass
     return False
 
+
 def score_config(url):
     if not url.startswith("vless://"):
         return 0
 
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+
+        try:
+            port = parsed.port
+        except:
+            return 0  # اگر پورت خراب بود رد شود
+
+        query = parse_qs(parsed.query)
+
+    except:
+        return 0
+
     score = 0
-    parsed = urlparse(url)
-    host = parsed.hostname
-    port = parsed.port
-    query = parse_qs(parsed.query)
 
     security = query.get("security", [""])[0]
     typ = query.get("type", [""])[0]
@@ -48,6 +61,8 @@ def score_config(url):
     sni = query.get("sni", [""])[0]
     fp = query.get("fp", [""])[0]
     alpn = query.get("alpn", [""])[0]
+
+    # امتیازدهی
 
     if security == "tls":
         score += 3
@@ -69,9 +84,13 @@ def score_config(url):
     if "http/1.1" in alpn:
         score += 1
 
-    if port in SSL_PORTS:
-        score += 2 if port == 443 else 1
+    if port and port in SSL_PORTS:
+        if port == 443:
+            score += 2
+        else:
+            score += 1
 
+    # بررسی Cloudflare
     if host:
         try:
             ipaddress.ip_address(host)
@@ -82,6 +101,7 @@ def score_config(url):
 
     return score
 
+
 def fetch_sources():
     all_configs = set()
 
@@ -91,17 +111,24 @@ def fetch_sources():
     for src in sources:
         try:
             print(f"Fetching: {src}")
-            r = requests.get(src, timeout=15)
+            r = requests.get(src, timeout=20)
             lines = r.text.splitlines()
+
             for line in lines:
-                all_configs.add(line.strip())
-        except:
+                line = line.strip()
+                if line:
+                    all_configs.add(line)
+
+        except Exception as e:
             print(f"Failed: {src}")
 
     return list(all_configs)
 
+
 def main():
     configs = fetch_sources()
+    print(f"\nTotal unique configs: {len(configs)}\n")
+
     scored = []
 
     for conf in configs:
@@ -111,7 +138,7 @@ def main():
 
     scored.sort(reverse=True)
 
-    print("\n🔥 GOLD CONFIGS:\n")
+    print("🔥 GOLD CONFIGS:\n")
 
     with open("gold.txt", "w") as f:
         for s, conf in scored:
@@ -119,6 +146,7 @@ def main():
             f.write(conf + "\n")
 
     print(f"\nSaved {len(scored)} configs to gold.txt")
+
 
 if __name__ == "__main__":
     main()
