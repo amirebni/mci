@@ -1,105 +1,109 @@
 import requests
 import re
-import json
-import base64
 from urllib.parse import urlparse, parse_qs
+import ipaddress
 
-# 🔴 لینک RAW خودتو اینجا بذار
 RAW_URL = "https://raw.githubusercontent.com/punez/Repo-5/refs/heads/main/final.txt"
 
-ALLOWED_PORTS = {443, 8443, 2053, 2087, 2096}
+SSL_PORTS = {443, 8443, 2053, 2087, 2096}
 
-# ---------------- VLESS ----------------
-def is_valid_vless(link):
+# Cloudflare IPv4 ranges (خلاصه شده)
+CF_RANGES = [
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    "103.22.200.0/22",
+    "103.31.4.0/22",
+    "141.101.64.0/18",
+    "108.162.192.0/18",
+    "190.93.240.0/20",
+    "188.114.96.0/20",
+    "197.234.240.0/22",
+    "198.41.128.0/17",
+    "162.158.0.0/15",
+    "104.16.0.0/13",
+    "104.24.0.0/14",
+    "172.64.0.0/13",
+    "131.0.72.0/22"
+]
+
+def is_cloudflare_ip(ip):
     try:
-        parsed = urlparse(link)
-        port = parsed.port
-        params = parse_qs(parsed.query)
-
-        if not port:
-            return False
-
-        security = params.get("security", [""])[0]
-        transport = params.get("type", [""])[0]
-        insecure = params.get("insecure", ["1"])[0]
-        sni = params.get("sni", [""])[0]
-        fp = params.get("fp", [""])[0]
-
-        if (
-            security == "tls" and
-            transport == "ws" and
-            insecure == "0" and
-            port in ALLOWED_PORTS and
-            sni != ""
-        ):
-            # اگر fingerprint وجود داشت، chrome باشه
-            if fp and fp != "chrome":
-                return False
-            return True
-
-        return False
+        ip_obj = ipaddress.ip_address(ip)
+        for net in CF_RANGES:
+            if ip_obj in ipaddress.ip_network(net):
+                return True
     except:
-        return False
-
-
-# ---------------- VMESS ----------------
-def decode_vmess(link):
-    try:
-        encoded = link.replace("vmess://", "")
-        padded = encoded + "=" * (-len(encoded) % 4)
-        decoded = base64.b64decode(padded).decode("utf-8")
-        return json.loads(decoded)
-    except:
-        return None
-
-def is_valid_vmess(link):
-    data = decode_vmess(link)
-    if not data:
-        return False
-
-    net = data.get("net", "")
-    port = int(data.get("port", 0))
-    tls = data.get("tls", "")
-    aid = data.get("aid", "0")
-
-    # WS سالم
-    if (
-        net == "ws" and
-        tls == "tls" and
-        port in {80, 443} and
-        aid == "0"
-    ):
-        return True
-
-    # TCP سالم
-    if (
-        net == "tcp" and
-        port > 1024 and
-        port not in {22, 25}
-    ):
-        return True
-
+        pass
     return False
 
+def score_config(url):
+    score = 0
 
-# ---------------- MAIN ----------------
+    if not url.startswith("vless://"):
+        return 0
+
+    parsed = urlparse(url)
+    host = parsed.hostname
+    port = parsed.port
+    query = parse_qs(parsed.query)
+
+    security = query.get("security", [""])[0]
+    typ = query.get("type", [""])[0]
+    insecure = query.get("insecure", ["1"])[0]
+    sni = query.get("sni", [""])[0]
+    fp = query.get("fp", [""])[0]
+    alpn = query.get("alpn", [""])[0]
+
+    if security == "tls":
+        score += 3
+
+    if typ == "ws":
+        score += 3
+    elif typ == "xhttp":
+        score += 2
+
+    if insecure == "0":
+        score += 2
+
+    if sni:
+        score += 2
+
+    if fp == "chrome":
+        score += 1
+
+    if "http/1.1" in alpn:
+        score += 1
+
+    if port in SSL_PORTS:
+        score += 2 if port == 443 else 1
+
+    # اگر IP مستقیم بود
+    if host:
+        try:
+            ipaddress.ip_address(host)
+            if is_cloudflare_ip(host):
+                score += 3
+        except:
+            pass
+
+    return score
+
 def main():
     response = requests.get(RAW_URL, timeout=20)
     lines = response.text.splitlines()
 
-    filtered = []
+    scored = []
 
     for line in lines:
-        line = line.strip()
-        if line.startswith("vless://") and is_valid_vless(line):
-            filtered.append(line)
-        elif line.startswith("vmess://") and is_valid_vmess(line):
-            filtered.append(line)
+        s = score_config(line.strip())
+        if s >= 8:
+            scored.append((s, line.strip()))
 
-    with open("filtered.txt", "w", encoding="utf-8") as f:
-        for item in filtered:
-            f.write(item + "\n")
+    scored.sort(reverse=True)
 
+    print("\n🔥 GOLD CONFIGS:\n")
+    for s, conf in scored:
+        print(f"[Score {s}] {conf}")
 
 if __name__ == "__main__":
     main()
