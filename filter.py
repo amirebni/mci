@@ -1,13 +1,9 @@
 import requests
-import re
 from urllib.parse import urlparse, parse_qs
 import ipaddress
 
-RAW_URL = "https://raw.githubusercontent.com/punez/Repo-5/refs/heads/main/final.txt"
-
 SSL_PORTS = {443, 8443, 2053, 2087, 2096}
 
-# Cloudflare IPv4 ranges (خلاصه شده)
 CF_RANGES = [
     "173.245.48.0/20",
     "103.21.244.0/22",
@@ -37,11 +33,10 @@ def is_cloudflare_ip(ip):
     return False
 
 def score_config(url):
-    score = 0
-
     if not url.startswith("vless://"):
         return 0
 
+    score = 0
     parsed = urlparse(url)
     host = parsed.hostname
     port = parsed.port
@@ -77,7 +72,6 @@ def score_config(url):
     if port in SSL_PORTS:
         score += 2 if port == 443 else 1
 
-    # اگر IP مستقیم بود
     if host:
         try:
             ipaddress.ip_address(host)
@@ -88,22 +82,43 @@ def score_config(url):
 
     return score
 
-def main():
-    response = requests.get(RAW_URL, timeout=20)
-    lines = response.text.splitlines()
+def fetch_sources():
+    all_configs = set()
 
+    with open("sources.txt") as f:
+        sources = [line.strip() for line in f if line.strip()]
+
+    for src in sources:
+        try:
+            print(f"Fetching: {src}")
+            r = requests.get(src, timeout=15)
+            lines = r.text.splitlines()
+            for line in lines:
+                all_configs.add(line.strip())
+        except:
+            print(f"Failed: {src}")
+
+    return list(all_configs)
+
+def main():
+    configs = fetch_sources()
     scored = []
 
-    for line in lines:
-        s = score_config(line.strip())
+    for conf in configs:
+        s = score_config(conf)
         if s >= 8:
-            scored.append((s, line.strip()))
+            scored.append((s, conf))
 
     scored.sort(reverse=True)
 
     print("\n🔥 GOLD CONFIGS:\n")
-    for s, conf in scored:
-        print(f"[Score {s}] {conf}")
+
+    with open("gold.txt", "w") as f:
+        for s, conf in scored:
+            print(f"[{s}] {conf}")
+            f.write(conf + "\n")
+
+    print(f"\nSaved {len(scored)} configs to gold.txt")
 
 if __name__ == "__main__":
     main()
