@@ -1,9 +1,13 @@
 import requests
+import re
 from urllib.parse import urlparse, parse_qs
 
-RAW_URL = "https://raw.githubusercontent.com/punez/Repo-5/refs/heads/main/final.txt"
+RAW_URL = "PASTE_YOUR_RAW_LINK_HERE"
 
-ALLOWED_PORTS = {443, 8443, 2096, 2087, 2053, 2083}
+ALLOWED_PORTS = {443, 8443, 2096, 2087, 2053}
+
+def is_ip(address):
+    return re.match(r"^\d+\.\d+\.\d+\.\d+$", address) is not None
 
 def is_valid_vless(link):
     try:
@@ -11,30 +15,31 @@ def is_valid_vless(link):
             return False
 
         parsed = urlparse(link)
+        server = parsed.hostname
         port = parsed.port
         params = parse_qs(parsed.query)
 
+        if not server or not port:
+            return False
+
+        # حذف IP مستقیم
+        if is_ip(server):
+            return False
+
         security = params.get("security", [""])[0]
         transport = params.get("type", [""])[0]
-        insecure = params.get("insecure", ["0"])[0]
+        insecure = params.get("insecure", ["1"])[0]
         sni = params.get("sni", [""])[0]
+        host = params.get("host", [""])[0]
 
-        # حالت CDN Safe
+        # فقط الگوی Cloudflare-like
         if (
             security == "tls" and
-            transport in {"ws", "xhttp", "grpc"} and
-            port in ALLOWED_PORTS and
+            transport == "ws" and
             insecure == "0" and
-            sni != ""
-        ):
-            return True
-
-        # حالت Low Port Escape
-        if (
-            security == "none" and
-            transport == "tcp" and
-            port is not None and
-            port < 100
+            port in ALLOWED_PORTS and
+            sni != "" and
+            host != ""
         ):
             return True
 
@@ -45,7 +50,7 @@ def is_valid_vless(link):
 
 
 def main():
-    response = requests.get(RAW_URL, timeout=15)
+    response = requests.get(RAW_URL, timeout=20)
     lines = response.text.splitlines()
 
     filtered = [line.strip() for line in lines if is_valid_vless(line.strip())]
