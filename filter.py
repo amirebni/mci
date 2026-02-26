@@ -4,15 +4,10 @@ import json
 import base64
 from urllib.parse import urlparse, parse_qs
 
-# 🔴 اینجا لینک RAW خودتو بذار
+# 🔴 لینک RAW خودتو اینجا بذار
 RAW_URL = "https://raw.githubusercontent.com/punez/Repo-5/refs/heads/main/final.txt"
 
-ALLOWED_VLESS_PORTS = {443, 2053, 2087, 2096, 8443}
-ALLOWED_VMESS_WS_PORTS = {80, 443}
-
-def is_ip(address):
-    return re.match(r"^\d+\.\d+\.\d+\.\d+$", address or "") is not None
-
+ALLOWED_PORTS = {443, 8443, 2053, 2087, 2096}
 
 # ---------------- VLESS ----------------
 def is_valid_vless(link):
@@ -27,13 +22,19 @@ def is_valid_vless(link):
         security = params.get("security", [""])[0]
         transport = params.get("type", [""])[0]
         insecure = params.get("insecure", ["1"])[0]
+        sni = params.get("sni", [""])[0]
+        fp = params.get("fp", [""])[0]
 
         if (
             security == "tls" and
             transport == "ws" and
             insecure == "0" and
-            port in ALLOWED_VLESS_PORTS
+            port in ALLOWED_PORTS and
+            sni != ""
         ):
+            # اگر fingerprint وجود داشت، chrome باشه
+            if fp and fp != "chrome":
+                return False
             return True
 
         return False
@@ -58,12 +59,14 @@ def is_valid_vmess(link):
 
     net = data.get("net", "")
     port = int(data.get("port", 0))
+    tls = data.get("tls", "")
     aid = data.get("aid", "0")
 
     # WS سالم
     if (
         net == "ws" and
-        port in ALLOWED_VMESS_WS_PORTS and
+        tls == "tls" and
+        port in {80, 443} and
         aid == "0"
     ):
         return True
